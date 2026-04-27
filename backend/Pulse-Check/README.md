@@ -7,72 +7,76 @@ A production-quality REST API that monitors critical infrastructure devices (sol
 
 ## Architecture Diagram
 
-```
-DEVICE (solar farm / weather station / pump relay)
-        |
-        |  POST /monitors              — Register + start countdown
-        |  POST /monitors/{id}/heartbeat — Reset countdown
-        |  POST /monitors/{id}/pause    — Stop countdown
-        |  GET  /monitors/{id}          — Check current state
-        v
-┌──────────────────────────────────────────────────────────────────┐
-│                      PULSE-CHECK API                             │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │  routes.py — Request Handler                               │  │
-│  │                                                            │  │
-│  │  POST /monitors                                            │  │
-│  │    → Validate body (id, timeout, alert_email)              │  │
-│  │    → Check for duplicate ID in MonitorStore                │  │
-│  │    → Call WatchdogTimer.create_timer(id, timeout)          │  │
-│  │    → Save monitor + timer to MonitorStore                  │  │
-│  │    → Return 201 Created                                    │  │
-│  │                                                            │  │
-│  │  POST /monitors/{id}/heartbeat                             │  │
-│  │    → Look up monitor in MonitorStore                       │  │
-│  │    → Cancel existing timer (WatchdogTimer.cancel_timer)    │  │
-│  │    → Create fresh timer (WatchdogTimer.create_timer)       │  │
-│  │    → Update store (deadline, last_heartbeat, status=active)│  │
-│  │    → Return 200 OK                                         │  │
-│  │                                                            │  │
-│  │  POST /monitors/{id}/pause                                 │  │
-│  │    → Look up monitor in MonitorStore                       │  │
-│  │    → If already paused → return 200 "already paused"       │  │
-│  │    → Cancel existing timer                                 │  │
-│  │    → Update store (status=paused, deadline=None)           │  │
-│  │    → Return 200 OK                                         │  │
-│  │                                                            │  │
-│  │  GET /monitors/{id}                                        │  │
-│  │    → Look up monitor in MonitorStore                       │  │
-│  │    → Calculate live time_remaining                         │  │
-│  │    → Return 200 with full state dict                       │  │
-│  └────────────────────────────────────────────────────────────┘  │
-│                          |                                       │
-│                          | create_timer()                        │
-│                          v                                       │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │  watchdog.py — WatchdogTimer                               │  │
-│  │                                                            │  │
-│  │  threading.Timer(timeout, _on_expiry)                      │  │
-│  │       |                                                    │  │
-│  │       | (fires after timeout seconds if not cancelled)     │  │
-│  │       v                                                    │  │
-│  │  _on_expiry(monitor_id)                                    │  │
-│  │    → store.update_on_expiry()  → status = "down"           │  │
-│  │    → log_alert(monitor_id)                                 │  │
-│  └────────────────────────────────────────────────────────────┘  │
-│                          |                                       │
-│                          v                                       │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │  utils.py — log_alert()                                    │  │
-│  │                                                            │  │
-│  │  Console: {"ALERT": "Device X is down!", "time": "..."}    │  │
-│  │  File:    alerts.log (same JSON, one line per alert)       │  │
-│  └────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A([Device sends POST /monitors]) --> B[Extract id, timeout, alert_email\nfrom request body]
+
+    B --> C{Are all required\nfields present?}
+
+    C -->|NO| D([Return 400 Bad Request\nMissing fields])
+
+    C -->|YES| E{Does monitor ID\nalready exist?}
+
+    E -->|YES| F([Return 409 Conflict\nMonitor already exists])
+
+    E -->|NO| G[Create monitor entry\nStatus: active]
+
+    G --> H[Start countdown timer\nusing threading.Timer]
+
+    H --> I([Return 201 Created\nMonitor registered successfully])
+
+    H --> J{Did timer\nreach zero?}
+
+    J -->|NO - Heartbeat received| K([Device sends POST\n/monitors/id/heartbeat])
+
+    K --> L{Does monitor\nexist?}
+
+    L -->|NO| M([Return 404 Not Found])
+
+    L -->|YES| N{Is monitor\npaused?}
+
+    N -->|YES| O[Un-pause monitor\nRestart timer]
+    O --> P([Return 200 OK\nMonitor resumed])
+
+    N -->|NO - Active| Q[Cancel existing timer\nStart fresh countdown]
+    Q --> R([Return 200 OK\nHeartbeat received])
+
+    J -->|YES - Timer expired| S[Set status to down]
+    S --> T[Fire Alert\nLog to console and alerts.log]
+    T --> U([ALERT: Device is down!\nTimestamp logged])
+
+    V([Device sends POST\n/monitors/id/pause]) --> W{Does monitor\nexist?}
+
+    W -->|NO| X([Return 404 Not Found])
+
+    W -->|YES| Y{Is monitor\nalready paused?}
+
+    Y -->|YES| Z([Return 200 OK\nAlready paused])
+
+    Y -->|NO| AA[Cancel timer\nSet status to paused]
+    AA --> AB([Return 200 OK\nMonitor paused])
+
+    AC([GET /monitors/id]) --> AD{Does monitor\nexist?}
+
+    AD -->|NO| AE([Return 404 Not Found])
+
+    AD -->|YES| AF([Return 200 OK\nid, status, time_remaining\nlast_heartbeat, alert_email])
+
+    style A fill:#4CAF50,color:#fff
+    style D fill:#f44336,color:#fff
+    style F fill:#f44336,color:#fff
+    style M fill:#f44336,color:#fff
+    style X fill:#f44336,color:#fff
+    style AE fill:#f44336,color:#fff
+    style I fill:#2196F3,color:#fff
+    style P fill:#2196F3,color:#fff
+    style R fill:#2196F3,color:#fff
+    style Z fill:#2196F3,color:#fff
+    style AB fill:#2196F3,color:#fff
+    style AF fill:#2196F3,color:#fff
+    style U fill:#f44336,color:#fff
 ```
 
----
 
 ## Monitor State Diagram
 
@@ -125,7 +129,7 @@ pulse-check-api/
 
 **1. Clone the repository**
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/NdatimanaAssa/AmaliTech-DEG-Project-based-challenges.git
 cd pulse-check-api
 ```
 
