@@ -19,6 +19,8 @@ A production-quality REST API that guarantees every payment is processed **exact
 
 ## Architecture Diagram
 
+Wait for seconds to view it 
+
 ```mermaid
 flowchart TD
     A([Client sends POST /process-payment]) --> B
@@ -70,7 +72,7 @@ flowchart TD
 **1. Clone the repository**
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/NdatimanaAssa/AmaliTech-DEG-Project-based-challenges.git
 cd idempotency-gateway
 ```
 
