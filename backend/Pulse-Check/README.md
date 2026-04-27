@@ -80,27 +80,30 @@ flowchart TD
 
 ## Monitor State Diagram
 
-```
-                    POST /monitors
-                         |
-                         v
-                    ┌─────────┐
-                    │  ACTIVE │ ◄─────────────────────────────┐
-                    └────┬────┘                               │
-                         |                                    │
-          ┌──────────────┼──────────────┐                     │
-          |              |              |                     │
-          v              v              v                     │
-   timeout expires  POST /pause   POST /heartbeat             │
-          |              |         (resets timer)             │
-          v              v                                    │
-       ┌──────┐      ┌────────┐                               │
-       │ DOWN │      │ PAUSED │                               │
-       └──────┘      └───┬────┘                               │
-    (alert fired)        |                                    │
-                         | POST /heartbeat                    │
-                         | (auto un-pause)                    │
-                         └────────────────────────────────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> active : POST /monitors\n(Register device)
+
+    active --> active : POST /monitors/id/heartbeat\n(Timer reset, still alive)
+
+    active --> paused : POST /monitors/id/pause\n(Maintenance mode)
+
+    active --> down : Timer expires\n(No heartbeat received)
+
+    paused --> active : POST /monitors/id/heartbeat\n(Un-pause and restart timer)
+
+    down --> [*] : Alert fired\nDevice marked as offline
+
+    state active {
+        [*] --> counting
+        counting --> reset : Heartbeat received
+        reset --> counting : Timer restarted
+    }
+
+    state down {
+        [*] --> alert_fired
+        alert_fired --> logged : Logged to console\nand alerts.log
+    }
 ```
 
 ---
