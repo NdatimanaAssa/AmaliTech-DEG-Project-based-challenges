@@ -351,4 +351,7 @@ In a real Fintech or infrastructure context, this endpoint feeds dashboards (Gra
 ---
 
 ## Author
+
+**Ndatimana Assa**
+
 Built for CritMon Servers Inc. Backend Engineering Assessment.
